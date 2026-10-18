@@ -1,6 +1,6 @@
 # 学生 A 数据服务接口规范（A → B / A → C 集成契约）
 
-> 版本 v1.0 · 2026-10-18
+> 版本 v1.1 · 2026-10-18
 > 作用域：**仅定义学生 A 对外提供的数据接口**（对应需求 FR-07 / FR-08 / FR-09）。
 > 分工边界：B 的模型服务接口、C 的 WebSocket 推送（FR-21）由各自负责，本文档不越界定义；仅在必要时说明衔接方式。
 > 标注 `[TBD]` 为待与 B/C 确认项，标注 `[可选]` 为一期可裁剪项。
@@ -24,7 +24,17 @@
 | P9 | **向后兼容** | 只允许「新增可选字段」，禁止删除或改变已有字段语义 |
 | P10 | **不过度设计** | 一期不引入 gRPC、GraphQL 等；REST + JSON 足够，降低 B/C 接入成本 |
 
-**技术底座（与需求第 8 节一致）**：RESTful JSON over HTTP；后端 Flask 或 FastAPI `[TBD：待 A 确认，建议 FastAPI，可自动生成 OpenAPI 文档，明显节省三方联调沟通成本]`。
+**技术底座（已确定）**：RESTful JSON over HTTP，后端框架采用 **FastAPI**（Python 3.10+，ASGI，搭配 Uvicorn 运行）。
+
+选型理由（三条）：
+
+1. **自动生成 OpenAPI 文档**——B、C 无需等 A 写完文档就能看到全部接口的字段与示例，三方联调的沟通成本大幅下降，正对应设计原则 P5「自描述」。
+2. **原生 Pydantic 模型校验**——请求参数与响应结构在代码层强约束，`quality`、时间格式、单位等契约约定有了落地的类型保障，不易出现「文档写 null、实际返回 -9999」这类漂移。
+3. **原生异步支持**——时序查询（S5）涉及数据库 IO，异步可提升并发能力，有助于达成 NFR-2 的实时性目标。
+
+> 本规范中的 Measurement 结构与各响应模型，在实现时应直接定义为 Pydantic `BaseModel`，做到「文档即代码」。
+
+**标准依赖**：`fastapi`、`uvicorn[standard]`、`pydantic`。`[TBD：数据库驱动按第 9 节时序库选型结果确定]`
 
 ---
 
@@ -37,7 +47,15 @@ https://{host}/api/v1/{resource}
 ```
 
 - Base Path：`/api/v1`
-- 文档地址：`GET /api/v1/docs`（由框架自动生成，需保证始终可访问）
+- 交互式文档（由 FastAPI 自动生成，联调期间必须始终可访问）：
+
+| 地址 | 内容 |
+|---|---|
+| `GET /docs` | Swagger UI，可直接在线试调接口 |
+| `GET /redoc` | ReDoc，更适合阅读 |
+| `GET /openapi.json` | OpenAPI 3.0 schema，B/C 可用它生成各自的客户端代码 |
+
+> **约定**：这三项属于基础设施，**不得加鉴权拦截**，否则 B/C 无法自助联调。
 
 ### 2.2 统一响应信封
 
@@ -503,7 +521,7 @@ ts,device_id,wt.gen.temp_winding_a,wt.gen.temp_winding_a_q,wt.env.wind_speed,wt.
 
 | 编号 | 问题 | 需谁确认 |
 |---|---|---|
-| I1 | 后端框架定 FastAPI 还是 Flask | A（建议 FastAPI） |
+| ~~I1~~ | ~~后端框架定 FastAPI 还是 Flask~~ | **已关闭（v1.1）**：确定采用 FastAPI + Uvicorn，见第 1 节 |
 | I2 | 认证方案与 FR-23 如何对齐 | A + C |
 | I3 | 导出结果是否必须带故障标签列，字段名与取值口径 | **B** |
 | I4 | 单位表与测点清单如何按 `feature_description.csv` 最终校准 | A（下载数据集后落实） |
@@ -517,3 +535,4 @@ ts,device_id,wt.gen.temp_winding_a,wt.gen.temp_winding_a_q,wt.env.wind_speed,wt.
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1.0 | 2026-10-18 | 初版，定义 S1–S8 八个接口，对应需求 FR-07 / FR-08 / FR-09 |
+| v1.1 | 2026-10-18 | 确定技术底座为 FastAPI + Uvicorn；补充交互式文档地址与依赖清单；关闭待确认项 I1。接口定义本身无变更，对 B/C 已写的调用代码无影响 |
